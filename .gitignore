@@ -41,12 +41,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# ngrok tunnel
+# ngrok tunnel files
 ngrok-tmp.json
 ngrok-url.txt
+
 # diagnostic logs
 gcm-diagnose.log
-
-# ngrok tunnel
-ngrok-tmp.json
-ngrok-url.txt
+*.log

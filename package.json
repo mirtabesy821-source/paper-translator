@@ -49,5 +49,8 @@
   },
   "homepage": "https://github.com/mirtabesy821-source/paper-translator#readme",
   "license": "MIT",
-  "author": ""
+  "author": "",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
