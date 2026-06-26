@@ -39,7 +39,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/paper-translator.git
+git clone https://github.com/mirtabesy821-source/paper-translator.git
 cd paper-translator
 
 # Install dependencies

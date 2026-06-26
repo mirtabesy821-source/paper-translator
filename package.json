@@ -41,12 +41,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/paper-translator.git"
+    "url": "https://github.com/mirtabesy821-source/paper-translator.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/paper-translator/issues"
+    "url": "https://github.com/mirtabesy821-source/paper-translator/issues"
   },
-  "homepage": "https://github.com/yourusername/paper-translator#readme",
+  "homepage": "https://github.com/mirtabesy821-source/paper-translator#readme",
   "license": "MIT",
   "author": ""
 }
+
