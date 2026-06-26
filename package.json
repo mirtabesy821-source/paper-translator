@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "node -e \"const fs=require('fs');const src=require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');const dst='./public/pdf.worker.min.mjs';if(!fs.existsSync(dst)) fs.copyFileSync(src,dst);console.log('pdf.worker copied to public/');\""
+    "postinstall": "node -e \"const fs=require('fs');const src=require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');const dst='./public/pdf.worker.min.mjs';if(!fs.existsSync(dst)) fs.copyFileSync(src,dst);console.log('pdf.worker copied to public/');\"",
+    "clean": "rm -rf .next node_modules/.cache"
   },
   "dependencies": {
     "katex": "^0.17.0",
@@ -50,4 +51,3 @@
   "license": "MIT",
   "author": ""
 }
-

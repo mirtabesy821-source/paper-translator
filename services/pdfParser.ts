@@ -2,7 +2,7 @@
 // PDF 解析服务 — 使用 PDF.js 提取文本并重组为结构化段落
 // ============================================================
 
-import { canvasToBlobUrl } from "@/lib/canvas-utils";
+import { canvasToBlobUrl } from "@/services/canvasUtils";
 
 import * as pdfjsLib from "pdfjs-dist";
 import type {

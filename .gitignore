@@ -44,3 +44,9 @@ next-env.d.ts
 # ngrok tunnel
 ngrok-tmp.json
 ngrok-url.txt
+# diagnostic logs
+gcm-diagnose.log
+
+# ngrok tunnel
+ngrok-tmp.json
+ngrok-url.txt
