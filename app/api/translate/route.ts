@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
       apiConfig,
     }: {
       blocks: { id: string; content: string }[];
-      apiConfig?: { baseUrl?: string; modelName?: string };
+      apiConfig?: { baseUrl?: string; modelName?: string; glossary?: { source: string; target: string }[] };
     } = body;
 
     // API Key 只从服务端环境变量读取
@@ -71,8 +71,19 @@ export async function POST(request: NextRequest) {
     // 拼接所有块
     const userContent = blocks.map((b) => b.content).join("\n\n---\n\n");
 
+    // ---- Glossary: dynamic term mapping ----
+    let systemPrompt = SYSTEM_PROMPT_STREAM;
+    const glossary = apiConfig?.glossary || [];
+    if (glossary.length > 0) {
+      const glossaryLines = glossary
+        .map((g: any) => "  \"" + g.source + "\" \u2192 \"" + g.target + "\"")
+        .join("\n");
+      const block = "## Glossary (mandatory)\n\nTranslate these terms exactly as specified:\n\n" + glossaryLines + "\n\nYou MUST use these mappings throughout the translation. Do not use alternative translations for these terms.";
+      systemPrompt = block + "\n\n" + systemPrompt;
+    }
+
     const messages: ChatMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT_STREAM },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userContent },
     ];
 

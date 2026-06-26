@@ -5,6 +5,7 @@
 export type { TextItem, BlockType, TranslationStatus, StructuredBlock, PageContent } from "./pdf";
 export type {
   ApiConfig,
+  GlossaryEntry,
   ChatMessage,
   TranslationRequest,
   TranslationDelta,

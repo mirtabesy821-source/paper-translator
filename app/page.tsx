@@ -11,7 +11,7 @@ import type { PdfCanvasHandle } from "@/components/PdfCanvas";
 import TranslationPanel from "@/components/TranslationPanel";
 import type { TranslationPanelHandle } from "@/components/TranslationPanel";
 import ProgressBar from "@/components/ProgressBar";
-import ApiKeyModal from "@/components/ApiKeyModal";
+import SettingsModal from "@/components/SettingsModal";
 import { usePdfLoader } from "@/hooks/usePdfLoader";
 import { useSyncScroll } from "@/hooks/useSyncScroll";
 import { useTranslationQueue } from "@/hooks/useTranslationQueue";
@@ -45,7 +45,7 @@ export default function Home() {
 
   // ---- UI 状态 ----
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
-  const [showApiModal, setShowApiModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [syncEnabled, setSyncEnabled] = useState(false);
 
@@ -152,17 +152,17 @@ export default function Home() {
         )}
 
         <button
-          onClick={() => setShowApiModal(true)}
+          onClick={() => setShowSettingsModal(true)}
           className="mt-8 text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline underline-offset-2"
         >
           ⚙️ 配置 API
         </button>
 
-        {showApiModal && (
-          <ApiKeyModal
+        {showSettingsModal && (
+          <SettingsModal
             currentConfig={apiConfig}
             onSave={setApiConfig}
-            onClose={() => setShowApiModal(false)}
+            onClose={() => setShowSettingsModal(false)}
           />
         )}
       </div>
@@ -240,7 +240,7 @@ export default function Home() {
           )}
 
           <button
-            onClick={() => setShowApiModal(true)}
+            onClick={() => setShowSettingsModal(true)}
             className="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
           >
             ⚙️ API
@@ -315,14 +315,14 @@ export default function Home() {
       </div>
 
       {/* API 配置弹窗 */}
-      {showApiModal && (
-        <ApiKeyModal
+      {showSettingsModal && (
+        <SettingsModal
           currentConfig={apiConfig}
           onSave={(cfg) => {
             setApiConfig(cfg);
-            setShowApiModal(false);
+            setShowSettingsModal(false);
           }}
-          onClose={() => setShowApiModal(false)}
+          onClose={() => setShowSettingsModal(false)}
         />
       )}
     </div>

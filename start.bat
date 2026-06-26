@@ -1,5 +1,4 @@
 @echo off
-REM Quick start script for Windows ? installs deps and starts dev server
 cd /d "%~dp0"
 
 echo Paper Translator - Starting...
@@ -18,5 +17,6 @@ echo   Local: http://localhost:3000
 echo ==========================================
 echo.
 
+start http://localhost:3000
 npx next dev -H 0.0.0.0 -p 3000
 pause

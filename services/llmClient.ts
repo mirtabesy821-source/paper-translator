@@ -33,7 +33,7 @@ export async function streamTranslate(
   const response = await fetch("/api/translate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ blocks, apiConfig }),
+    body: JSON.stringify({ blocks, apiConfig: { baseUrl: apiConfig.baseUrl, modelName: apiConfig.modelName, glossary: apiConfig.glossary } }),
     signal,
   });
 

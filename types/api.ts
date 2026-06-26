@@ -2,10 +2,17 @@
 // 类型：LLM API 配置与请求
 // ============================================================
 
+/** 术语映射条目 */
+export interface GlossaryEntry {
+  source: string;
+  target: string;
+}
+
 /** API 配置（前端版本 — 不含 apiKey，安全原因） */
 export interface ApiConfig {
   baseUrl: string;
   modelName: string;
+  glossary?: GlossaryEntry[];
 }
 
 /** LLM 请求消息 */
