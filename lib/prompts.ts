@@ -1,12 +1,11 @@
 // ============================================================
 // 共享常量：LLM System Prompt（翻译质量核心）
 // ============================================================
-// 此文件同时用于客户端（llmClient.ts）和服务端（route.ts），
-// 修改任一 prompt 时请确保两者同步更新。
+// 此文件同时用于客户端（llmClient.ts）和服务端（route.ts）
 // ============================================================
 
 /**
- * 流式翻译使用的 System Prompt（较短，适合流式输出）
+ * 流式翻译使用的 System Prompt
  */
 export const SYSTEM_PROMPT_STREAM = `你是一个专业的学术论文翻译专家。你的任务是将用户提供的英文（或源语言）学术文本翻译为中文。
 
@@ -50,14 +49,3 @@ The quantum state ⟨PROTECT_0_1234567890⟩ can be expressed as a linear combin
 
 输出：<!--BLOCK:page1-block0-->
 量子态 ⟨PROTECT_0_1234567890⟩ 可以表示为基础态的线性组合。`;
-
-/**
- * 默认翻译参数
- */
-export const DEFAULT_TRANSLATION_CONFIG = {
-  temperature: 0.3,
-  maxTokens: 4096,
-  batchSize: 6,
-  concurrency: 2,
-  maxRetries: 2,
-} as const;

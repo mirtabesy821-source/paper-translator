@@ -25,5 +25,28 @@
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "description": "AI-powered bilingual academic paper translator — upload a PDF and get side-by-side original & translated views with LaTeX formula preservation and synchronized scrolling. Powered by LLM (DeepSeek, OpenAI, or any OpenAI-compatible API).",
+  "keywords": [
+    "pdf",
+    "translation",
+    "academic-paper",
+    "llm",
+    "nextjs",
+    "deepseek",
+    "latex",
+    "bilingual",
+    "typescript",
+    "paper-translator"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/paper-translator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/paper-translator/issues"
+  },
+  "homepage": "https://github.com/yourusername/paper-translator#readme",
+  "license": "MIT",
+  "author": ""
 }

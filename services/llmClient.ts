@@ -1,17 +1,18 @@
 // ============================================================
-// LLM 客户端 — 流式调用 OpenAI 兼容 API
+// LLM 客户端 — 流式调用 OpenAI 兼容 API（走代理）
+// ============================================================
+// 注意：apiConfig 不再包含 apiKey，Key 从服务端环境变量读取
 // ============================================================
 
-import type { ApiConfig, ChatMessage } from "@/types";
-import { SYSTEM_PROMPT_BATCH } from "@/lib/prompts";
+import type { ApiConfig } from "@/types";
 
 // ============================================================
-// 流式翻译（通过 Next.js 代理 API 转发，避免浏览器 CORS 限制）
+// 流式翻译（通过 Next.js 代理 API 转发）
 // ============================================================
 
 /**
  * 流式翻译：通过 /api/translate 代理转发到 LLM API。
- * 前端不直接请求 OpenAI/OpenRouter，避免 CORS 被拦截。
+ * 前端不直接请求 LLM API，API Key 由服务端注入。
  *
  * 代理 SSE 事件格式：
  *   event: delta  → data: { text: "..." }   增量文本
@@ -19,10 +20,9 @@ import { SYSTEM_PROMPT_BATCH } from "@/lib/prompts";
  *   event: error  → data: { message: "..." } 错误信息
  *
  * @param blocks 待翻译的文本块（已保护处理）
- * @param apiConfig API 配置
+ * @param apiConfig API 配置（baseUrl + modelName，不含 apiKey）
  * @param onDelta 每次收到增量文本时的回调
  * @param signal AbortSignal 用于取消请求
- * @throws 网络错误或代理返回的错误
  */
 export async function streamTranslate(
   blocks: { id: string; content: string }[],
@@ -60,9 +60,8 @@ export async function streamTranslate(
 
     buffer += decoder.decode(value, { stream: true });
 
-    // 解析代理 SSE 格式：event: <type>\ndata: <json>\n\n
     const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() || ""; // 不完整的留到下次
+    buffer = chunks.pop() || "";
 
     for (const chunk of chunks) {
       const lines = chunk.split("\n");
@@ -88,9 +87,7 @@ export async function streamTranslate(
         } else if (eventType === "error") {
           throw new Error(payload.message || "上游翻译失败");
         }
-        // "done" 事件：忽略，循环结束后正常返回
       } catch (err: any) {
-        // 重新解析 dataStr 获取错误消息
         let errMsg = "翻译失败";
         try {
           const p = JSON.parse(dataStr);
@@ -103,48 +100,4 @@ export async function streamTranslate(
   }
 
   return accumulatedText;
-}
-
-// ============================================================
-// 非流式翻译（备选方案）
-// ============================================================
-
-/**
- * 非流式调用 LLM API，一次性返回完整翻译结果。
- */
-export async function translateBatch(
-  text: string,
-  apiConfig: ApiConfig,
-  signal?: AbortSignal
-): Promise<string> {
-  const { apiKey, baseUrl, modelName } = apiConfig;
-
-  const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT_BATCH },
-    { role: "user", content: text },
-  ];
-
-  const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages,
-      stream: false,
-      temperature: 0.3,
-    }),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`API 请求失败 (${response.status})`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content ?? "";
 }

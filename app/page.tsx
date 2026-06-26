@@ -127,7 +127,7 @@ export default function Home() {
 
     const currentPages = pagesState.length > 0 ? pagesState : pages;
     // apiConfig 可为空 — 服务端 /api/translate 会从 .env.local 读取 Key
-    startTranslation(currentPages, (apiConfig || {}) as ApiConfig, handlePagesUpdate);
+    startTranslation(currentPages, (apiConfig || { baseUrl: '', modelName: '' }), handlePagesUpdate);
   }, [apiConfig, pages, pagesState, startTranslation, handlePagesUpdate]);
 
   // ---- 渲染：空状态 ----

@@ -2,6 +2,8 @@
 // PDF 解析服务 — 使用 PDF.js 提取文本并重组为结构化段落
 // ============================================================
 
+import { canvasToBlobUrl } from "@/lib/canvas-utils";
+
 import * as pdfjsLib from "pdfjs-dist";
 import type {
   TextItem,
@@ -18,13 +20,13 @@ if (typeof window !== "undefined") {
 // ---- 常量：几何启发式阈值 ----
 
 /** 同一行内 Y 坐标偏差阈值（视口像素）。当前视口缩放 1.5x */
-const SAME_LINE_Y_THRESHOLD = 5;
+import { SAME_LINE_Y_THRESHOLD, PARAGRAPH_GAP_THRESHOLD, HEADING_FONT_SCALE, PDF_RENDER_SCALE, HISTOGRAM_PEAK_THRESHOLD, COLUMN_PEAK_MERGE_DISTANCE, MAX_PDF_FILE_SIZE } from "@/lib/constants";
 
 /** 段落间距阈值（视口像素）：行间距 ~18px，段落间距 ~30px，取中间值 */
-const PARAGRAPH_GAP_THRESHOLD = 25;
+
 
 /** 标题字号阈值（相对比例）：fontSize > 此值的块视为标题 */
-const HEADING_FONT_SCALE = 1.2;
+
 
 /** LaTeX 特征字符正则，用于检测公式 */
 const LATEX_PATTERN = /[\\{}^_$]|\\alpha|\\beta|\\sum|\\int|\\frac|\\sqrt|\\begin|\\end/;
@@ -48,7 +50,7 @@ export async function loadPdf(file: File): Promise<PageContent[]> {
     const page = await pdf.getPage(pageNum);
 
     // 1) Canvas 渲染：将页面绘制到离屏 Canvas 并导出 Data URL
-    const viewport = page.getViewport({ scale: 1.5 }); // 1.5x 高清渲染
+    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE }); // 1.5x 高清渲染
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
@@ -58,7 +60,7 @@ export async function loadPdf(file: File): Promise<PageContent[]> {
       viewport,
     }).promise;
 
-    const canvasDataUrl = canvas.toDataURL("image/png");
+    const canvasDataUrl = await canvasToBlobUrl(canvas);
 
     // 2) 文本提取 + 结构化段落重组（传入 viewport 用于坐标转换）
     const blocks = await extractStructuredBlocks(page, pageNum, 1.5, viewport.height);
@@ -101,7 +103,7 @@ function detectColumnLayout(items: TextItem[]): { columnCount: number; boundarie
   }
 
   // 找局部峰值（阈值：超过 3% 的条目落入该 bin）
-  const threshold = items.length * 0.03;
+  const threshold = items.length * HISTOGRAM_PEAK_THRESHOLD;
   const peaks: number[] = [];
   for (let i = 1; i < numBins - 1; i++) {
     if (
@@ -118,7 +120,7 @@ function detectColumnLayout(items: TextItem[]): { columnCount: number; boundarie
   // 合并过近的峰值（< 30px）
   const merged: number[] = [peaks[0]];
   for (let i = 1; i < peaks.length; i++) {
-    if (peaks[i] - merged[merged.length - 1] > 30) {
+    if (peaks[i] - merged[merged.length - 1] > COLUMN_PEAK_MERGE_DISTANCE) {
       merged.push(peaks[i]);
     }
   }
@@ -152,7 +154,7 @@ function detectColumnLayout(items: TextItem[]): { columnCount: number; boundarie
 export async function extractStructuredBlocks(
   page: pdfjsLib.PDFPageProxy,
   pageNumber: number,
-  scale: number,
+  scale: number = PDF_RENDER_SCALE,
   viewportHeight: number
 ): Promise<StructuredBlock[]> {
   const textContent = await page.getTextContent();

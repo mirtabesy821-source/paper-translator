@@ -1,20 +1,40 @@
 // ============================================================
-// LLM 翻译代理 API — 接收段落数组，以 SSE 流式转发
+// LLM 翻译代理 API — SSE 流式转发（apiKey 由服务端注入）
 // ============================================================
 // POST /api/translate
-// Body: { blocks: {id,content}[], apiConfig }
-// Response: SSE 流 (text/event-stream)
-//   事件: delta  → data: { blockId, text }
-//   事件: done    → data: { success: true }
-//   事件: error   → data: { message: string }
+// Body: { blocks: [{id,content}], apiConfig: {baseUrl,modelName} }
+//
+// 安全设计：apiKey 不从前端传入，永远从服务端环境变量读取。
+// 上游错误响应做摘要处理，避免泄露内部 API 错误细节。
 // ============================================================
 
 import { NextRequest } from "next/server";
-import type { ApiConfig, ChatMessage } from "@/types";
+import type { ChatMessage } from "@/types";
 import { SYSTEM_PROMPT_STREAM } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * 安全摘要上游错误信息：只保留状态码和简短提示，
+ * 避免将上游原始响应（可能含敏感 token 信息）完整透传给浏览器
+ */
+function summarizeUpstreamError(status: number, body: string): string {
+  if (status === 401 || status === 403) {
+    return "API Key 无效或未授权，请检查配置";
+  }
+  if (status === 429) {
+    return "API 请求过于频繁，请稍后重试";
+  }
+  if (status >= 500) {
+    return `上游 API 服务异常 (${status})，请稍后重试`;
+  }
+  // 仅在非生产环境保留原始错误用于调试
+  if (process.env.NODE_ENV === "development") {
+    return `上游 API 错误 (${status}): ${body.slice(0, 200)}`;
+  }
+  return `上游 API 错误 (${status})`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,25 +44,32 @@ export async function POST(request: NextRequest) {
       apiConfig,
     }: {
       blocks: { id: string; content: string }[];
-      apiConfig: ApiConfig;
+      apiConfig?: { baseUrl?: string; modelName?: string };
     } = body;
 
-    // 优先用请求中的配置，否则从环境变量读取
-    const apiKey = apiConfig?.apiKey || process.env.DEEPSEEK_API_KEY;
-    const baseUrl = apiConfig?.baseUrl || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
-    const modelName = apiConfig?.modelName || process.env.DEEPSEEK_MODEL || "deepseek-chat";
+    // API Key 只从服务端环境变量读取
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const baseUrl =
+      apiConfig?.baseUrl ||
+      process.env.DEEPSEEK_BASE_URL ||
+      "https://api.deepseek.com";
+    const modelName =
+      apiConfig?.modelName ||
+      process.env.DEEPSEEK_MODEL ||
+      "deepseek-chat";
 
     if (!blocks?.length || !apiKey) {
       return new Response(
-        JSON.stringify({ error: "缺少 API Key：请在 .env.local 中配置 DEEPSEEK_API_KEY 或在页面中手动输入" }),
+        JSON.stringify({
+          error:
+            "API Key 未配置：请在 .env.local 中设置 DEEPSEEK_API_KEY 环境变量",
+        }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
     // 拼接所有块
-    const userContent = blocks
-      .map((b) => b.content)
-      .join("\n\n---\n\n");
+    const userContent = blocks.map((b) => b.content).join("\n\n---\n\n");
 
     const messages: ChatMessage[] = [
       { role: "system", content: SYSTEM_PROMPT_STREAM },
@@ -51,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
 
-    // 转发到 LLM API
+    // 转发到 LLM API（服务端注入 apiKey）
     const upstream = await fetch(url, {
       method: "POST",
       headers: {
@@ -70,7 +97,9 @@ export async function POST(request: NextRequest) {
     if (!upstream.ok) {
       const errText = await upstream.text();
       return new Response(
-        JSON.stringify({ error: `上游 API 错误 (${upstream.status}): ${errText}` }),
+        JSON.stringify({
+          error: summarizeUpstreamError(upstream.status, errText),
+        }),
         { status: 502, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -82,7 +111,9 @@ export async function POST(request: NextRequest) {
         const reader = upstream.body?.getReader();
         if (!reader) {
           controller.enqueue(
-            encoder.encode(`event: error\ndata: ${JSON.stringify({ message: "上游响应体为空" })}\n\n`)
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({ message: "上游响应为空" })}\n\n`
+            )
           );
           controller.close();
           return;
@@ -107,7 +138,9 @@ export async function POST(request: NextRequest) {
               const data = trimmed.slice(5).trim();
               if (data === "[DONE]") {
                 controller.enqueue(
-                  encoder.encode(`event: done\ndata: ${JSON.stringify({ success: true })}\n\n`)
+                  encoder.encode(
+                    `event: done\ndata: ${JSON.stringify({ success: true })}\n\n`
+                  )
                 );
                 controller.close();
                 return;
@@ -130,7 +163,9 @@ export async function POST(request: NextRequest) {
           }
 
           controller.enqueue(
-            encoder.encode(`event: done\ndata: ${JSON.stringify({ success: true })}\n\n`)
+            encoder.encode(
+              `event: done\ndata: ${JSON.stringify({ success: true })}\n\n`
+            )
           );
         } catch (err: any) {
           controller.enqueue(

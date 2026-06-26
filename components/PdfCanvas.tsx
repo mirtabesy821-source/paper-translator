@@ -4,7 +4,7 @@
 // PdfCanvas — 左侧：逐页 Canvas 渲染 + 透明 textLayer 覆盖层
 // ============================================================
 
-import { useRef, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from "react";
 import type { PageContent, StructuredBlock } from "@/types";
 
 interface PdfCanvasProps {
@@ -78,11 +78,22 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
       getScrollContainer: () => scrollRef.current,
     }));
 
-    // ---- Canvas 渲染 ----
+    // ---- Canvas 渲染（惰性：只渲染可视页 ± 2 页，减少内存开销） ----
     useEffect(() => {
+      const windowStart = Math.max(1, currentPage - 2);
+      const windowEnd = Math.min(pages.length, currentPage + 2);
+
       for (const page of pages) {
         const canvas = canvasRefs.current.get(page.pageNumber);
         if (!canvas || !page.canvasDataUrl) continue;
+
+        // 可视窗口外的页面设为空白占位
+        if (page.pageNumber < windowStart || page.pageNumber > windowEnd) {
+          canvas.style.display = "none";
+          continue;
+        }
+        canvas.style.display = "block";
+        if (canvas.dataset.loaded === page.canvasDataUrl) continue;
 
         const img = new Image();
         img.onload = () => {
@@ -94,8 +105,9 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
           }
         };
         img.src = page.canvasDataUrl;
+        canvas.dataset.loaded = page.canvasDataUrl;
       }
-    }, [pages]);
+    }, [pages, currentPage]);
 
     // ---- Intersection Observer：检测当前可视页面 ----
     useEffect(() => {

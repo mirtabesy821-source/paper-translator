@@ -3,78 +3,91 @@
 // ============================================================
 // ApiKeyModal — API 配置弹窗
 // ============================================================
+// 安全设计：不再收集 API Key。
+// API Key 通过服务端 .env.local 环境变量配置。
+// 用户只需指定 baseUrl 和 modelName。
+// ============================================================
 
 import { useState } from "react";
 import type { ApiConfig } from "@/types";
 
 interface ApiKeyModalProps {
-  /** 当前配置（可能为 null） */
   currentConfig: ApiConfig | null;
   onSave: (config: ApiConfig) => void;
   onClose: () => void;
 }
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_MODEL = "deepseek-chat";
+
+const PLATFORM_PRESETS: { name: string; url: string; model: string }[] = [
+  { name: "DeepSeek", url: "https://api.deepseek.com", model: "deepseek-chat" },
+  { name: "OpenAI", url: "https://api.openai.com/v1", model: "gpt-4o" },
+  { name: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "openrouter/auto" },
+  { name: "自定义", url: "", model: "" },
+];
 
 export default function ApiKeyModal({
   currentConfig,
   onSave,
   onClose,
 }: ApiKeyModalProps) {
-  const [apiKey, setApiKey] = useState(currentConfig?.apiKey ?? "");
   const [baseUrl, setBaseUrl] = useState(
     currentConfig?.baseUrl ?? DEFAULT_BASE_URL
   );
   const [modelName, setModelName] = useState(
     currentConfig?.modelName ?? DEFAULT_MODEL
   );
-  const [showKey, setShowKey] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState(0);
+
+  const handlePresetChange = (index: number) => {
+    setSelectedPreset(index);
+    const preset = PLATFORM_PRESETS[index];
+    if (preset.url) setBaseUrl(preset.url);
+    if (preset.model) setModelName(preset.model);
+  };
 
   const handleSave = () => {
-    if (!apiKey.trim()) return;
     onSave({
-      apiKey: apiKey.trim(),
       baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
       modelName: modelName.trim() || DEFAULT_MODEL,
     });
     onClose();
   };
 
-  const isValid = apiKey.trim().length > 0;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md p-6 mx-4">
-        {/* 标题 */}
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
           ⚙️ API 配置
         </h2>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-5">
-          配置大语言模型 API（默认 DeepSeek，也兼容 OpenAI / OpenRouter 等平台）
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">
+          配置大语言模型端点
+        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400 mb-5 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
+          ⚠️ API Key 请在 <code className="font-mono text-xs">.env.local</code> 中配置
+          <code className="font-mono text-xs"> DEEPSEEK_API_KEY</code> 环境变量
         </p>
 
-        {/* API Key */}
+        {/* 平台预设 */}
         <label className="block mb-3">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            API Key
+            平台
           </span>
-          <div className="relative mt-1">
-            <input
-              type={showKey ? "text" : "password"}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full px-3 py-2 pr-10 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-              title={showKey ? "隐藏" : "显示"}
-            >
-              {showKey ? "🙈" : "👁️"}
-            </button>
+          <div className="flex gap-1 mt-1 flex-wrap">
+            {PLATFORM_PRESETS.map((p, i) => (
+              <button
+                key={p.name}
+                onClick={() => handlePresetChange(i)}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  selectedPreset === i
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
           </div>
         </label>
 
@@ -90,9 +103,6 @@ export default function ApiKeyModal({
             placeholder={DEFAULT_BASE_URL}
             className="w-full mt-1 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
-          <p className="mt-1 text-xs text-zinc-400">
-            DeepSeek: https://api.deepseek.com ｜ OpenAI: https://api.openai.com/v1
-          </p>
         </label>
 
         {/* Model Name */}
@@ -119,12 +129,7 @@ export default function ApiKeyModal({
           </button>
           <button
             onClick={handleSave}
-            disabled={!isValid}
-            className={`px-4 py-2 text-sm rounded-lg font-medium transition-colors ${
-              isValid
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-zinc-300 dark:bg-zinc-700 text-zinc-500 cursor-not-allowed"
-            }`}
+            className="px-4 py-2 text-sm rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
           >
             保存配置
           </button>
