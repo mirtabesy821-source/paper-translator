@@ -71,14 +71,14 @@ export async function POST(request: NextRequest) {
     // 拼接所有块
     const userContent = blocks.map((b) => b.content).join("\n\n---\n\n");
 
-    // ---- Glossary: dynamic term mapping ----
+    // ---- Glossary: 动态术语映射，拼入 system prompt ----
     let systemPrompt = SYSTEM_PROMPT_STREAM;
     const glossary = apiConfig?.glossary || [];
     if (glossary.length > 0) {
       const glossaryLines = glossary
         .map((g: any) => "  \"" + g.source + "\" \u2192 \"" + g.target + "\"")
         .join("\n");
-      const block = "## Glossary (mandatory)\n\nTranslate these terms exactly as specified:\n\n" + glossaryLines + "\n\nYou MUST use these mappings throughout the translation. Do not use alternative translations for these terms.";
+      const block = "## 术语词库（强制遵循）\n\n以下术语必须严格按照指定译法翻译，不得使用其他译法：\n\n" + glossaryLines + "\n\n在整个翻译过程中，你必须始终使用上述映射，不得对这些术语使用替代译法。";
       systemPrompt = block + "\n\n" + systemPrompt;
     }
 

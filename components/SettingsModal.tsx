@@ -4,7 +4,7 @@
 // SettingsModal — API 配置 + 专业术语词库（Glossary）
 // ============================================================
 
-import { useState } from "react";
+import { useState, useMemo, useRef, type ChangeEvent } from "react";
 import type { ApiConfig, GlossaryEntry } from "@/types";
 
 interface SettingsModalProps {
@@ -66,6 +66,72 @@ export default function SettingsModal({
   const [glossaryText, setGlossaryText] = useState(
     currentConfig?.glossary ? formatGlossaryText(currentConfig.glossary) : ""
   );
+
+  // ---- 导入/导出 ----
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    const entries = parseGlossaryText(glossaryText);
+    const blob = new Blob([JSON.stringify(entries, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "glossary.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      try {
+        // 尝试 JSON 格式
+        const entries: unknown = JSON.parse(text);
+        if (Array.isArray(entries)) {
+          setGlossaryText(
+            formatGlossaryText(
+              entries.filter(
+                (item): item is GlossaryEntry =>
+                  typeof item === "object" &&
+                  item !== null &&
+                  "source" in item &&
+                  "target" in item
+              )
+            )
+          );
+          return;
+        }
+      } catch {
+        // 非 JSON，按纯文本格式加载
+        setGlossaryText(text);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // 允许重复导入同一文件
+  };
+
+  // ---- 重复术语检测 ----
+  const duplicateTerms = useMemo(() => {
+    const entries = parseGlossaryText(glossaryText);
+    const seen = new Map<string, number>();
+    const dupes: string[] = [];
+    for (const entry of entries) {
+      const key = entry.source.toLowerCase();
+      const count = (seen.get(key) || 0) + 1;
+      seen.set(key, count);
+      if (count === 2) dupes.push(entry.source);
+    }
+    return dupes;
+  }, [glossaryText]);
 
   const handlePresetChange = (index: number) => {
     setSelectedPreset(index);
@@ -178,16 +244,47 @@ export default function SettingsModal({
                 className="w-full px-3 py-2 text-sm font-mono border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
               />
 
+              {/* 重复术语警告 */}
+              {duplicateTerms.length > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-1.5">
+                  ⚠️ 检测到重复术语：{duplicateTerms.join("、")}
+                </p>
+              )}
+
+              {/* 隐藏的文件导入 input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,.txt"
+                onChange={handleImportFile}
+                className="hidden"
+              />
+
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs text-zinc-400 dark:text-zinc-500">
                   {parseGlossaryText(glossaryText).length} 条术语映射
                 </span>
-                <button
-                  onClick={() => setGlossaryText("")}
-                  className="text-xs text-red-500 hover:text-red-600 transition-colors"
-                >
-                  清空
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleImportClick}
+                    className="text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                  >
+                    📥 导入
+                  </button>
+                  <button
+                    onClick={handleExport}
+                    disabled={parseGlossaryText(glossaryText).length === 0}
+                    className="text-xs text-blue-500 hover:text-blue-600 transition-colors disabled:text-zinc-300 dark:disabled:text-zinc-600 disabled:cursor-not-allowed"
+                  >
+                    📤 导出
+                  </button>
+                  <button
+                    onClick={() => setGlossaryText("")}
+                    className="text-xs text-red-500 hover:text-red-600 transition-colors"
+                  >
+                    清空
+                  </button>
+                </div>
               </div>
             </div>
           )}

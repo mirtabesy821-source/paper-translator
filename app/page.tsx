@@ -44,7 +44,15 @@ export default function Home() {
   } = useTranslationQueue();
 
   // ---- UI 状态 ----
-  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem("paper-translator-api-config");
+      return saved ? (JSON.parse(saved) as ApiConfig) : null;
+    } catch {
+      return null;
+    }
+  });
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [syncEnabled, setSyncEnabled] = useState(false);
@@ -58,6 +66,19 @@ export default function Home() {
 
   // ---- 同步滚动（仅 syncEnabled 时生效） ----
   const displayPages = pagesState.length > 0 ? pagesState : pages;
+
+  // ---- 持久化 API 配置（含 glossary）到 localStorage ----
+  useEffect(() => {
+    try {
+      if (apiConfig) {
+        localStorage.setItem("paper-translator-api-config", JSON.stringify(apiConfig));
+      } else {
+        localStorage.removeItem("paper-translator-api-config");
+      }
+    } catch {
+      // localStorage 不可用时静默失败
+    }
+  }, [apiConfig]);
 
   useEffect(() => {
     if (!syncEnabled) return;
