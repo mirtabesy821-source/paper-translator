@@ -8,10 +8,10 @@ import { useRef, useCallback, useState } from "react";
 import type { ScrollSource } from "@/types";
 
 interface UseSyncScrollReturn {
-  /** 左侧滚动容器 ref */
-  leftRef: React.RefObject<HTMLDivElement | null>;
+  /** 左侧滚动容器 ref（MutableRefObject 允许子组件写入） */
+  leftRef: React.MutableRefObject<HTMLDivElement | null>;
   /** 右侧滚动容器 ref */
-  rightRef: React.RefObject<HTMLDivElement | null>;
+  rightRef: React.MutableRefObject<HTMLDivElement | null>;
   /** 当前同步源 */
   syncSource: React.MutableRefObject<ScrollSource | null>;
   /** 当前悬停的 blockId */

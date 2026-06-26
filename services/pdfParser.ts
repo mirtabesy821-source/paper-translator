@@ -74,6 +74,67 @@ export async function loadPdf(file: File): Promise<PageContent[]> {
 }
 
 // ============================================================
+// 多栏检测：基于 X 坐标直方图峰值检测列数
+// ============================================================
+
+/**
+ * 对 TextItem 集合进行 X 坐标直方图分析，检测多栏布局。
+ * 学术论文常见的双栏布局会导致文本跨栏合并，
+ * 通过 X 坐标峰值聚类检测列数和分界位置。
+ */
+function detectColumnLayout(items: TextItem[]): { columnCount: number; boundaries: number[] } {
+  if (items.length < 5) return { columnCount: 1, boundaries: [] };
+
+  const xValues = items.map((i) => i.x);
+  const minX = Math.min(...xValues);
+  const maxX = Math.max(...xValues);
+  const pageWidth = maxX - minX;
+  if (pageWidth < 100) return { columnCount: 1, boundaries: [] };
+
+  // 构建 X 坐标直方图
+  const binWidth = Math.max(pageWidth / 60, 8);
+  const numBins = Math.ceil(pageWidth / binWidth) + 1;
+  const histogram = new Array(numBins).fill(0);
+  for (const x of xValues) {
+    const idx = Math.floor((x - minX) / binWidth);
+    histogram[Math.min(idx, numBins - 1)]++;
+  }
+
+  // 找局部峰值（阈值：超过 3% 的条目落入该 bin）
+  const threshold = items.length * 0.03;
+  const peaks: number[] = [];
+  for (let i = 1; i < numBins - 1; i++) {
+    if (
+      histogram[i] > threshold &&
+      histogram[i] >= histogram[i - 1] &&
+      histogram[i] >= histogram[i + 1]
+    ) {
+      peaks.push(minX + i * binWidth + binWidth / 2);
+    }
+  }
+
+  if (peaks.length <= 1) return { columnCount: 1, boundaries: [] };
+
+  // 合并过近的峰值（< 30px）
+  const merged: number[] = [peaks[0]];
+  for (let i = 1; i < peaks.length; i++) {
+    if (peaks[i] - merged[merged.length - 1] > 30) {
+      merged.push(peaks[i]);
+    }
+  }
+
+  if (merged.length <= 1) return { columnCount: 1, boundaries: [] };
+
+  // 边界 = 相邻峰值的中点
+  const boundaries: number[] = [];
+  for (let i = 0; i < merged.length - 1; i++) {
+    boundaries.push((merged[i] + merged[i + 1]) / 2);
+  }
+
+  return { columnCount: merged.length, boundaries };
+}
+
+// ============================================================
 // 核心算法：几何启发式段落重组
 // ============================================================
 
@@ -122,6 +183,10 @@ export async function extractStructuredBlocks(
 
   if (items.length === 0) return [];
 
+  // 获取原始页面宽度（PDF 点数），用于将 X 坐标转为百分比
+  const originalViewport = page.getViewport({ scale: 1 });
+  const pageWidth = originalViewport.width;
+
   // --- Step 2: 按 Y 升序排序（视口空间：Y 小 = 靠上），同 Y 按 X 升序（左→右） ---
   items.sort((a, b) => {
     const yDiff = a.y - b.y; // Y 升序：小的在上
@@ -168,11 +233,32 @@ export async function extractStructuredBlocks(
     lines.push(currentLine);
   }
 
+  // --- 多栏检测与排序 ---
+  // 学术论文常见双栏布局，检测后按"列→行"重新排序，确保段落合并正确
+  const columnLayout = detectColumnLayout(items);
+  if (columnLayout.columnCount > 1) {
+    // 为每行计算平均 X 坐标并分配列索引
+    for (const line of lines) {
+      const avgX =
+        line.items.reduce((s, it) => s + it.x, 0) / line.items.length;
+      let colIndex = columnLayout.boundaries.findIndex((b) => avgX < b);
+      if (colIndex === -1) colIndex = columnLayout.columnCount - 1;
+      (line as any).__col = colIndex;
+    }
+    // 按列优先排序：先列（左→右），再行 Y（上→下）
+    lines.sort((a, b) => {
+      const colDiff = (a as any).__col - (b as any).__col;
+      if (colDiff !== 0) return colDiff;
+      return a.y - b.y;
+    });
+  }
+
   // --- Step 4: 段落拆分 ---
   const blocks: StructuredBlock[] = [];
   let blockIdCounter = 0;
   let paraLines: TextLine[] = [];
   let paraYStart = 0;
+  let lastColumnIndex = 0;
 
   const flushParagraph = () => {
     if (paraLines.length === 0) return;
@@ -201,7 +287,38 @@ export async function extractStructuredBlocks(
       type = "equation";
     }
 
+    // 表格检测：多行文本具有一致的列分隔模式（≥3列且≥60%行列数一致）
+    if (type === "paragraph" && paraLines.length >= 2) {
+      const textLines = fullText.split("\n");
+      const colCounts = textLines.map(
+        (l) => l.split(/\s{2,}/).filter((s) => s.trim()).length
+      );
+      const freqCount = [...new Set(colCounts)].sort(
+        (a, b) =>
+          colCounts.filter((c) => c === b).length -
+          colCounts.filter((c) => c === a).length
+      )[0];
+      const consistentLines = colCounts.filter((c) => c === freqCount).length;
+      if (freqCount >= 3 && consistentLines / textLines.length >= 0.6) {
+        type = "table";
+      }
+    }
+
     const blockId = `page${pageNumber}-block${blockIdCounter++}`;
+
+    // 计算块的 X 范围（百分比），用于 PdfCanvas 覆盖层按列宽定位
+    const allX = paraLines.flatMap((l) => l.items.map((it) => it.x));
+    const allXEnd = paraLines.flatMap(
+      (l) => l.items.map((it) => it.x + it.width)
+    );
+    const xStartPct =
+      allX.length > 0
+        ? Math.max(0, (Math.min(...allX) / pageWidth) * 100)
+        : 0;
+    const xEndPct =
+      allXEnd.length > 0
+        ? Math.min(100, (Math.max(...allXEnd) / pageWidth) * 100)
+        : 100;
 
     blocks.push({
       id: blockId,
@@ -210,6 +327,8 @@ export async function extractStructuredBlocks(
       pageNumber,
       yStart: paraYStart,
       yEnd: paraLines[paraLines.length - 1].y,
+      xStartPct,
+      xEndPct,
       translated: "",
       translationStatus: "pending",
     });
@@ -219,20 +338,23 @@ export async function extractStructuredBlocks(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const thisCol = (line as any).__col ?? 0;
 
     if (paraLines.length === 0) {
       // 开始新段落
       paraLines.push(line);
       paraYStart = line.y;
+      lastColumnIndex = thisCol;
     } else {
       const prevLine = paraLines[paraLines.length - 1];
       const gap = line.y - prevLine.y; // 视口 Y 向下，gap > 0 表示有间距
 
-      if (gap > PARAGRAPH_GAP_THRESHOLD) {
-        // 间距过大 → 当前段落结束，新段落开始
+      // 列变化时强制结束当前段落
+      if (thisCol !== lastColumnIndex || gap > PARAGRAPH_GAP_THRESHOLD) {
         flushParagraph();
         paraLines.push(line);
         paraYStart = line.y;
+        lastColumnIndex = thisCol;
       } else {
         // 间距小 → 同一段落内的新行
         paraLines.push(line);

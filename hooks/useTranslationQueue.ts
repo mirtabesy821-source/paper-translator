@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-// useTranslationQueue — 翻译队列管理：段落级并发 + 流式更新
+// useTranslationQueue — 翻译队列管理：批次并发 + 流式更新 + 自动重试
 // ============================================================
 
 import { useState, useCallback, useRef } from "react";
@@ -10,7 +10,12 @@ import type {
   StructuredBlock,
   ApiConfig,
 } from "@/types";
-import { protectSingleBlock, restoreBlocks } from "@/services/structureProtector";
+import {
+  protectBlocks,
+  restoreBlocks,
+  splitTranslatedBlocks,
+  resetProtectCounter,
+} from "@/services/structureProtector";
 import { streamTranslate } from "@/services/llmClient";
 
 interface UseTranslationQueueReturn {
@@ -30,15 +35,23 @@ interface UseTranslationQueueReturn {
   ) => void;
   /** 取消翻译 */
   cancelTranslation: () => void;
+  /** 重试所有失败的块 */
+  retryFailedBlocks: () => void;
 }
+
+const BATCH_SIZE = 6;   // 每批发送的段落数
+const CONCURRENCY = 2;  // 并行批次数
+const MAX_RETRIES = 2;  // 每批最大重试次数
 
 /**
  * useTranslationQueue
  *
  * 翻译策略：
- * - 以"段落"为单位发送给 LLM
- * - 每次并发 3 个段落请求（可调整）
- * - 每个段落流式接收，逐字更新到对应块的 translated 字段
+ * - 将段落按 BATCH_SIZE 分批，每批用 protectBlocks 拼接后一起发送
+ * - LLM 能利用批内上下文提升术语一致性和质量
+ * - splitTranslatedBlocks 将 LLM 响应拆分回各块
+ * - 每批最多重试 MAX_RETRIES 次，指数退避（1s, 2s）
+ * - CONCURRENCY 个 worker 并行处理批次
  */
 export function useTranslationQueue(): UseTranslationQueueReturn {
   const [progress, setProgress] = useState(0);
@@ -48,22 +61,55 @@ export function useTranslationQueue(): UseTranslationQueueReturn {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const blockMapRef = useRef<Map<string, StructuredBlock>>(new Map());
+  const pagesRef = useRef<PageContent[]>([]);
+  const onPagesUpdateRef = useRef<((pages: PageContent[]) => void) | null>(null);
+  const apiConfigRef = useRef<ApiConfig>({} as ApiConfig);
 
+  // ---- 取消翻译 ----
   const cancelTranslation = useCallback(() => {
     abortControllerRef.current?.abort();
     setIsTranslating(false);
   }, []);
 
+  // ---- 生成更新后的 pages（用于触发 React 重渲染） ----
+  const buildUpdatedPages = useCallback(
+    (pages: PageContent[]): PageContent[] => {
+      return pages.map((page) => ({
+        ...page,
+        blocks: page.blocks.map((b) => ({
+          ...b,
+          translated: blockMapRef.current.get(b.id)?.translated ?? b.translated,
+          translationStatus:
+            blockMapRef.current.get(b.id)?.translationStatus ??
+            b.translationStatus,
+        })),
+      }));
+    },
+    []
+  );
+
+  // ---- 开始翻译 ----
   const startTranslation = useCallback(
     async (
       pages: PageContent[],
       apiConfig: ApiConfig,
       onPagesUpdate: (pages: PageContent[]) => void
     ) => {
-      // 收集所有待翻译的 block
+      // 存储引用，供 retryFailedBlocks 使用
+      pagesRef.current = pages;
+      onPagesUpdateRef.current = onPagesUpdate;
+      apiConfigRef.current = apiConfig;
+
+      // 重置计数器
+      resetProtectCounter();
+
+      // 收集所有待翻译的块（翻译文本类型，排除公式和图片）
       const allBlocks = pages.flatMap((p) => p.blocks);
       const pendingBlocks = allBlocks.filter(
-        (b) => b.translationStatus === "pending" && b.type === "paragraph"
+        (b) =>
+          b.translationStatus === "pending" &&
+          b.type !== "equation" &&
+          b.type !== "image"
       );
 
       if (pendingBlocks.length === 0) return;
@@ -82,105 +128,138 @@ export function useTranslationQueue(): UseTranslationQueueReturn {
         blockMapRef.current.set(b.id, b);
       }
 
-      // 并发控制：最多 3 个并行请求
-      const CONCURRENCY = 3;
-      const queue = [...pendingBlocks];
+      // ---- 批处理 ----
+      const batches: StructuredBlock[][] = [];
+      for (let i = 0; i < pendingBlocks.length; i += BATCH_SIZE) {
+        batches.push(pendingBlocks.slice(i, i + BATCH_SIZE));
+      }
+
       let completedCount = 0;
 
       const updatePages = () => {
-        // 深拷贝 pages 以触发 React 重渲染
-        const updatedPages = pages.map((page) => ({
-          ...page,
-          blocks: page.blocks.map((b) => ({
-            ...b,
-            translated: blockMapRef.current.get(b.id)?.translated ?? b.translated,
-            translationStatus:
-              blockMapRef.current.get(b.id)?.translationStatus ??
-              b.translationStatus,
-          })),
-        }));
-        onPagesUpdate(updatedPages);
+        onPagesUpdate(buildUpdatedPages(pages));
       };
 
       /**
-       * 翻译单个 block
+       * 翻译一个批次：将多个 block 拼接后一起发送给 LLM
        */
-      const translateOneBlock = async (
-        block: StructuredBlock
-      ): Promise<void> => {
+      const translateBatch = async (batch: StructuredBlock[]): Promise<void> => {
         if (signal.aborted) return;
 
-        // 标记为翻译中
-        const stored = blockMapRef.current.get(block.id);
-        if (stored) stored.translationStatus = "translating";
+        // 标记整批为翻译中
+        for (const block of batch) {
+          const stored = blockMapRef.current.get(block.id);
+          if (stored) stored.translationStatus = "translating";
+        }
         updatePages();
 
-        // 保护公式/图片
-        const { protectedContent, protectMap } = protectSingleBlock(
-          block.id,
-          block.content
-        );
+        // 保护所有块（拼接为 <!--BLOCK:id--> + <!--SEPARATOR--> 格式）
+        const { protectedContent, protectMap } = protectBlocks(batch);
 
-        try {
-          // 流式翻译（通过 Next.js 代理 API），返回完整译文
-          const fullText = await streamTranslate(
-            [{ id: block.id, content: protectedContent }],
-            apiConfig,
-            (_, text) => {
-              if (signal.aborted) return;
-              // 流式更新：实时显示翻译进度
-              const restored = restoreBlocks(text, protectMap);
-              const stored = blockMapRef.current.get(block.id);
-              if (stored) stored.translated = restored;
-              updatePages();
-            },
-            signal
-          );
+        let attempt = 0;
 
-          // 翻译完成
-          if (!signal.aborted) {
-            const stored = blockMapRef.current.get(block.id);
-            if (stored) {
-              stored.translated = restoreBlocks(fullText, protectMap);
-              stored.translationStatus = "done";
+        while (attempt <= MAX_RETRIES) {
+          if (signal.aborted) return;
+
+          try {
+            const fullText = await streamTranslate(
+              [{ id: batch[0].id, content: protectedContent }],
+              apiConfig,
+              () => {
+                // 批次模式下不做逐字流式更新，避免频繁重渲染
+              },
+              signal
+            );
+
+            if (!signal.aborted) {
+              // 拆分 LLM 响应回各块
+              const results = splitTranslatedBlocks(fullText);
+              const foundIds = new Set(results.map((r) => r.blockId));
+
+              for (const { blockId, content } of results) {
+                const stored = blockMapRef.current.get(blockId);
+                if (stored) {
+                  stored.translated = restoreBlocks(content, protectMap);
+                  stored.translationStatus = "done";
+                }
+              }
+
+              // 兜底：LLM 未返回的块保留原文
+              for (const block of batch) {
+                const stored = blockMapRef.current.get(block.id);
+                if (stored && stored.translationStatus === "translating") {
+                  stored.translated = stored.content;
+                  stored.translationStatus = "done";
+                }
+              }
+            }
+            return; // 成功，退出重试循环
+          } catch (err: any) {
+            attempt++;
+            if (attempt <= MAX_RETRIES && !signal.aborted) {
+              // 指数退避：1s, 2s
+              await new Promise((r) => setTimeout(r, 1000 * attempt));
             }
           }
-        } catch (err: any) {
-          // 流式中断但有译文 → 算完成；完全没收到的才是真失败
-          console.error(`翻译异常 (${block.id}):`, err);
+        }
+
+        // 重试耗尽 → 标记为 error
+        for (const block of batch) {
           const stored = blockMapRef.current.get(block.id);
-          if (stored) {
-            stored.translationStatus = stored.translated ? "done" : "error";
+          if (stored && stored.translationStatus === "translating") {
+            stored.translationStatus = "error";
           }
         }
-
-        completedCount++;
-        setTranslatedCount(completedCount);
-        setProgress(completedCount / pendingBlocks.length);
-        updatePages();
       };
 
-      // ---- 并发执行队列 ----
+      // ---- 并发 worker ----
       const workers: Promise<void>[] = [];
-      let idx = 0;
+      let batchIdx = 0;
 
-      const worker = async () => {
-        while (idx < queue.length && !signal.aborted) {
-          const block = queue[idx++];
-          await translateOneBlock(block);
+      const batchWorker = async () => {
+        while (batchIdx < batches.length && !signal.aborted) {
+          const batch = batches[batchIdx++];
+          await translateBatch(batch);
+          completedCount += batch.length;
+          setTranslatedCount(completedCount);
+          setProgress(completedCount / pendingBlocks.length);
+          updatePages();
         }
       };
 
-      // 启动 CONCURRENCY 个 worker
       for (let i = 0; i < CONCURRENCY; i++) {
-        workers.push(worker());
+        workers.push(batchWorker());
       }
 
       await Promise.all(workers);
       setIsTranslating(false);
     },
-    []
+    [buildUpdatedPages]
   );
+
+  // ---- 重试失败的块 ----
+  const retryFailedBlocks = useCallback(() => {
+    const pages = pagesRef.current;
+    const onPagesUpdate = onPagesUpdateRef.current;
+    if (!pages || !onPagesUpdate) return;
+
+    // 将有 error 状态的块重置为 pending
+    const resetPages = pages.map((page) => ({
+      ...page,
+      blocks: page.blocks.map((b) => ({
+        ...b,
+        translationStatus:
+          b.translationStatus === "error"
+            ? ("pending" as const)
+            : b.translationStatus,
+        translated: b.translationStatus === "error" ? "" : b.translated,
+      })),
+    }));
+
+    onPagesUpdate(resetPages);
+    // 重新触发翻译
+    startTranslation(resetPages, apiConfigRef.current, onPagesUpdate);
+  }, [startTranslation]);
 
   return {
     progress,
@@ -189,5 +268,6 @@ export function useTranslationQueue(): UseTranslationQueueReturn {
     isTranslating,
     startTranslation,
     cancelTranslation,
+    retryFailedBlocks,
   };
 }

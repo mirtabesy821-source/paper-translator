@@ -15,7 +15,7 @@ interface ApiKeyModalProps {
 }
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-chat";
+const DEFAULT_MODEL = "deepseek-v4-flash";
 
 export default function ApiKeyModal({
   currentConfig,

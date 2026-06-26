@@ -4,7 +4,7 @@
 // TranslationPanel — 右侧：译文容器，与左侧逐页虚拟对齐
 // ============================================================
 
-import { useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import { useRef, useEffect, useLayoutEffect, useImperativeHandle, forwardRef } from "react";
 import BlockView from "./BlockView";
 import type { PageContent, StructuredBlock } from "@/types";
 
@@ -16,6 +16,8 @@ interface TranslationPanelProps {
   onBlockHover: (blockId: string | null) => void;
   onBlockClick: (blockId: string) => void;
   onPageVisible: (pageNumber: number) => void;
+  /** 同步滚动 ref — 供父组件获取实际 DOM 滚动容器 */
+  syncScrollRef?: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 export interface TranslationPanelHandle {
@@ -41,11 +43,19 @@ const TranslationPanel = forwardRef<TranslationPanelHandle, TranslationPanelProp
       onBlockHover,
       onBlockClick,
       onPageVisible,
+      syncScrollRef,
     },
     ref
   ) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+    // ---- 将内部 scrollRef 同步到父组件传入的 ref ----
+    useLayoutEffect(() => {
+      if (syncScrollRef) {
+        syncScrollRef.current = scrollRef.current;
+      }
+    }, [syncScrollRef]);
 
     // ---- 暴露给父组件 ----
     useImperativeHandle(ref, () => ({

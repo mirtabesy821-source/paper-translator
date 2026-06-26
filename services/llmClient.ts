@@ -3,34 +3,7 @@
 // ============================================================
 
 import type { ApiConfig, ChatMessage } from "@/types";
-
-// ============================================================
-// System Prompt（硬编码）
-// ============================================================
-
-export const SYSTEM_PROMPT = `你是一个专业的学术论文翻译专家。你的任务是将用户提供的英文（或源语言）学术文本翻译为中文。
-
-## 核心规则（必须严格遵守）
-
-1. **保护所有占位符**：文本中以 ⟨PROTECT_ 开头、以 ⟩ 结尾的内容是受保护的占位符，代表 LaTeX 公式、图片标签或代码块。你必须**原样保留**这些占位符，不得翻译、修改或删除其中的任何字符。
-
-2. **保留所有标记**：文本中的 <!--BLOCK:...--> 和 <!--SEPARATOR--> 是结构标记，必须完整保留，不得修改。
-
-3. **专业学术翻译**：
-   - 使用准确、规范的学术中文
-   - 保持原文的术语一致性
-   - 公式变量名、数字、单位不翻译
-   - 专有名词首次出现可保留英文并括号注中文
-
-4. **结构一致**：输出必须与输入的结构完全对应，仅替换自然语言文本。
-
-## 示例
-
-输入：<!--BLOCK:page1-block0-->
-The quantum state ⟨PROTECT_0_1234567890⟩ can be expressed as a linear combination of basis states.
-
-输出：<!--BLOCK:page1-block0-->
-量子态 ⟨PROTECT_0_1234567890⟩ 可以表示为基础态的线性组合。`;
+import { SYSTEM_PROMPT_BATCH } from "@/lib/prompts";
 
 // ============================================================
 // 流式翻译（通过 Next.js 代理 API 转发，避免浏览器 CORS 限制）
@@ -117,7 +90,7 @@ export async function streamTranslate(
         }
         // "done" 事件：忽略，循环结束后正常返回
       } catch (err: any) {
-        // 重新解析 dataStr 获取错误消息（payload 在 catch 中不可见）
+        // 重新解析 dataStr 获取错误消息
         let errMsg = "翻译失败";
         try {
           const p = JSON.parse(dataStr);
@@ -147,7 +120,7 @@ export async function translateBatch(
   const { apiKey, baseUrl, modelName } = apiConfig;
 
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: SYSTEM_PROMPT_BATCH },
     { role: "user", content: text },
   ];
 

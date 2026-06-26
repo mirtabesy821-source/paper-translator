@@ -15,6 +15,11 @@ const PLACEHOLDER_SUFFIX = "⟩";
 
 let protectCounter = 0;
 
+/** 重置占位符计数器（每次新翻译任务开始时调用） */
+export function resetProtectCounter(): void {
+  protectCounter = 0;
+}
+
 // ============================================================
 // LaTeX / 公式保护
 // ============================================================
@@ -114,7 +119,7 @@ export function splitTranslatedBlocks(
   translated: string
 ): { blockId: string; content: string }[] {
   const result: { blockId: string; content: string }[] = [];
-  const blockRegex = /<!--BLOCK:([^-]+)-->\n([\s\S]*?)(?=\n\n<!--SEPARATOR-->|$)/g;
+  const blockRegex = /<!--BLOCK:([^>]+)-->\n([\s\S]*?)(?=\n\n<!--SEPARATOR-->|$)/g;
 
   let match;
   while ((match = blockRegex.exec(translated)) !== null) {

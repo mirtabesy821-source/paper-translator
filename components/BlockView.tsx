@@ -74,6 +74,44 @@ export default function BlockView({
           </div>
         );
 
+      case "table": {
+        const rows = displayText
+          .split("\n")
+          .filter((line) => line.trim());
+        return (
+          <div className="my-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-600">
+            <table className="min-w-full border-collapse text-sm">
+              <tbody>
+                {rows.map((row, ri) => {
+                  const cells = row
+                    .split(/\s{2,}/)
+                    .filter((c) => c.trim());
+                  return (
+                    <tr
+                      key={ri}
+                      className={
+                        ri % 2 === 0
+                          ? "bg-white dark:bg-zinc-900"
+                          : "bg-zinc-50 dark:bg-zinc-800/50"
+                      }
+                    >
+                      {cells.map((cell, ci) => (
+                        <td
+                          key={ci}
+                          className="px-2 py-1.5 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                        >
+                          {cell.trim()}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
       case "paragraph":
       default:
         return (

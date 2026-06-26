@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ngrok tunnel
+ngrok-tmp.json
+ngrok-url.txt

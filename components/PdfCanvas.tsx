@@ -4,7 +4,7 @@
 // PdfCanvas — 左侧：逐页 Canvas 渲染 + 透明 textLayer 覆盖层
 // ============================================================
 
-import { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, useCallback } from "react";
 import type { PageContent, StructuredBlock } from "@/types";
 
 interface PdfCanvasProps {
@@ -18,6 +18,8 @@ interface PdfCanvasProps {
   onBlockHover: (blockId: string | null) => void;
   onBlockClick: (blockId: string) => void;
   onPageVisible: (pageNumber: number) => void;
+  /** 同步滚动 ref — 供父组件获取实际 DOM 滚动容器 */
+  syncScrollRef?: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 export interface PdfCanvasHandle {
@@ -34,12 +36,19 @@ export interface PdfCanvasHandle {
  */
 const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
   function PdfCanvas(
-    { pages, currentPage, hoveredBlockId, activeBlockId, onBlockHover, onBlockClick, onPageVisible },
+    { pages, currentPage, hoveredBlockId, activeBlockId, onBlockHover, onBlockClick, onPageVisible, syncScrollRef },
     ref
   ) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
     const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+
+    // ---- 将内部 scrollRef 同步到父组件传入的 ref ----
+    useLayoutEffect(() => {
+      if (syncScrollRef) {
+        syncScrollRef.current = scrollRef.current;
+      }
+    }, [syncScrollRef]);
 
     // ---- 暴露给父组件的方法 ----
     useImperativeHandle(ref, () => ({
@@ -144,6 +153,8 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
 
                 const isHovered = hoveredBlockId === block.id;
                 const isActive = activeBlockId === block.id;
+                const leftPct = block.xStartPct ?? 0;
+                const widthPct = Math.max((block.xEndPct ?? 100) - leftPct, 1);
 
                 return (
                   <div
@@ -153,7 +164,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
                     onMouseLeave={() => onBlockHover(null)}
                     onClick={() => onBlockClick(block.id)}
                     className={`
-                      absolute left-0 right-0 cursor-pointer transition-colors duration-150
+                      absolute cursor-pointer transition-colors duration-150
                       ${isHovered || isActive
                         ? "bg-yellow-200/40 dark:bg-yellow-500/20"
                         : "hover:bg-blue-200/20 dark:hover:bg-blue-500/10"
@@ -162,6 +173,8 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(
                     style={{
                       top: `${topPct}%`,
                       height: `${heightPct}%`,
+                      left: `${leftPct}%`,
+                      width: `${widthPct}%`,
                     }}
                     title={block.content.slice(0, 100)}
                   />

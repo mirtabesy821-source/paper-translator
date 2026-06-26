@@ -2,7 +2,7 @@
 // LLM 翻译代理 API — 接收段落数组，以 SSE 流式转发
 // ============================================================
 // POST /api/translate
-// Body: { blocks: {id,content}[], systemPrompt, apiConfig }
+// Body: { blocks: {id,content}[], apiConfig }
 // Response: SSE 流 (text/event-stream)
 //   事件: delta  → data: { blockId, text }
 //   事件: done    → data: { success: true }
@@ -11,25 +11,10 @@
 
 import { NextRequest } from "next/server";
 import type { ApiConfig, ChatMessage } from "@/types";
+import { SYSTEM_PROMPT_STREAM } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const SYSTEM_PROMPT = `你是一个专业的学术论文翻译专家。你的任务是将用户提供的英文（或源语言）学术文本翻译为中文。
-
-## 核心规则（必须严格遵守）
-
-1. **保护所有占位符**：文本中以 ⟨PROTECT_ 开头、以 ⟩ 结尾的内容是受保护的占位符，代表 LaTeX 公式、图片标签或代码块。你必须**原样保留**这些占位符，不得翻译、修改或删除其中的任何字符。
-
-2. **保留所有标记**：文本中的 <!--BLOCK:...--> 和 <!--SEPARATOR--> 是结构标记，必须完整保留，不得修改。
-
-3. **专业学术翻译**：
-   - 使用准确、规范的学术中文
-   - 保持原文的术语一致性
-   - 公式变量名、数字、单位不翻译
-   - 专有名词首次出现可保留英文并括号注中文
-
-4. **结构一致**：输出必须与输入的结构完全对应，仅替换自然语言文本。`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,7 +45,7 @@ export async function POST(request: NextRequest) {
       .join("\n\n---\n\n");
 
     const messages: ChatMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: SYSTEM_PROMPT_STREAM },
       { role: "user", content: userContent },
     ];
 

@@ -4,7 +4,7 @@
 // 主页面 — 学术论文双语对照翻译
 // ============================================================
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import FileUpload from "@/components/FileUpload";
 import PdfCanvas from "@/components/PdfCanvas";
 import type { PdfCanvasHandle } from "@/components/PdfCanvas";
@@ -23,6 +23,9 @@ export default function Home() {
 
   // ---- 同步滚动 & 高亮联动 ----
   const {
+    leftRef,
+    rightRef,
+    syncScroll,
     hoveredBlockId,
     activeBlockId,
     onBlockHover,
@@ -37,12 +40,14 @@ export default function Home() {
     isTranslating,
     startTranslation,
     cancelTranslation,
+    retryFailedBlocks,
   } = useTranslationQueue();
 
   // ---- UI 状态 ----
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [syncEnabled, setSyncEnabled] = useState(false);
 
   // ---- Refs ----
   const pdfCanvasRef = useRef<PdfCanvasHandle>(null);
@@ -50,6 +55,28 @@ export default function Home() {
 
   // 内部 pages 状态（用于翻译更新）
   const [pagesState, setPagesState] = useState<PageContent[]>([]);
+
+  // ---- 同步滚动（仅 syncEnabled 时生效） ----
+  const displayPages = pagesState.length > 0 ? pagesState : pages;
+
+  useEffect(() => {
+    if (!syncEnabled) return;
+
+    const leftEl = leftRef.current;
+    const rightEl = rightRef.current;
+    if (!leftEl || !rightEl) return;
+
+    const handleLeftScroll = () => syncScroll("left");
+    const handleRightScroll = () => syncScroll("right");
+
+    leftEl.addEventListener("scroll", handleLeftScroll, { passive: true });
+    rightEl.addEventListener("scroll", handleRightScroll, { passive: true });
+
+    return () => {
+      leftEl.removeEventListener("scroll", handleLeftScroll);
+      rightEl.removeEventListener("scroll", handleRightScroll);
+    };
+  }, [syncEnabled, leftRef, rightRef, syncScroll]);
 
   // ---- 文件上传 ----
   const handleFileSelect = useCallback(
@@ -89,17 +116,8 @@ export default function Home() {
     [onBlockClick]
   );
 
-  // ---- 环境变量是否已配置 ----
-  const isEnvConfigured = process.env.NEXT_PUBLIC_API_CONFIGURED === "true";
-
   // ---- 开始翻译 ----
   const handleStartTranslation = useCallback(() => {
-    // 环境变量已配置 → 不需要手动填 Key
-    if (!isEnvConfigured && !apiConfig) {
-      setShowApiModal(true);
-      return;
-    }
-
     const targetPages = pagesState.length > 0 ? pagesState : pages;
     if (targetPages.length === 0) return;
 
@@ -108,9 +126,9 @@ export default function Home() {
     }
 
     const currentPages = pagesState.length > 0 ? pagesState : pages;
-    // 传空对象让服务端从环境变量读取
-    startTranslation(currentPages, apiConfig || {} as ApiConfig, handlePagesUpdate);
-  }, [apiConfig, pages, pagesState, startTranslation, handlePagesUpdate, isEnvConfigured]);
+    // apiConfig 可为空 — 服务端 /api/translate 会从 .env.local 读取 Key
+    startTranslation(currentPages, (apiConfig || {}) as ApiConfig, handlePagesUpdate);
+  }, [apiConfig, pages, pagesState, startTranslation, handlePagesUpdate]);
 
   // ---- 渲染：空状态 ----
   if (pages.length === 0 && !loading) {
@@ -166,8 +184,6 @@ export default function Home() {
   }
 
   // ---- 主视图：双栏对照 ----
-  const displayPages = pagesState.length > 0 ? pagesState : pages;
-
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-zinc-950">
       {/* 顶部工具栏 */}
@@ -192,13 +208,8 @@ export default function Home() {
           {!isTranslating ? (
             <button
               onClick={handleStartTranslation}
-              disabled={!isEnvConfigured && !apiConfig}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                isEnvConfigured || apiConfig
-                  ? "bg-blue-600 text-white hover:bg-blue-700"
-                  : "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
-              }`}
-              title={!isEnvConfigured && !apiConfig ? "请先配置 API" : "开始翻译"}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              title="开始翻译"
             >
               开始翻译
             </button>
@@ -209,6 +220,23 @@ export default function Home() {
             >
               取消
             </button>
+          )}
+
+          {!isTranslating &&
+            displayPages.flatMap((p) => p.blocks).filter((b) => b.translationStatus === "error").length > 0 && (
+              <button
+                onClick={retryFailedBlocks}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                title="重试失败的段落"
+              >
+                🔄 重试 (
+                {
+                  displayPages
+                    .flatMap((p) => p.blocks)
+                    .filter((b) => b.translationStatus === "error").length
+                }
+                )
+              </button>
           )}
 
           <button
@@ -223,6 +251,18 @@ export default function Home() {
             className="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
           >
             📂 重新上传
+          </button>
+
+          <button
+            onClick={() => setSyncEnabled(!syncEnabled)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+              syncEnabled
+                ? "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
+                : "border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            }`}
+            title={syncEnabled ? "关闭同步滚动" : "开启同步滚动"}
+          >
+            {syncEnabled ? "🔗 同步中" : "🔓 同步"}
           </button>
 
           <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-2 whitespace-nowrap">
@@ -249,6 +289,7 @@ export default function Home() {
             onBlockHover={onBlockHover}
             onBlockClick={handleLeftBlockClick}
             onPageVisible={handleLeftPageVisible}
+            syncScrollRef={leftRef}
           />
         </div>
 
@@ -268,6 +309,7 @@ export default function Home() {
             onBlockHover={onBlockHover}
             onBlockClick={handleRightBlockClick}
             onPageVisible={handleRightPageVisible}
+            syncScrollRef={rightRef}
           />
         </div>
       </div>

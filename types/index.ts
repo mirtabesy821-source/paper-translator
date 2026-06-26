@@ -23,7 +23,7 @@ export interface TextItem {
 }
 
 /** 结构化文本块类型 */
-export type BlockType = "paragraph" | "heading" | "equation" | "image";
+export type BlockType = "paragraph" | "heading" | "equation" | "image" | "table";
 
 /** 几何启发式算法产生的结构化文本块 */
 export interface StructuredBlock {
@@ -39,6 +39,10 @@ export interface StructuredBlock {
   yStart: number;
   /** 在页面内的 Y 结束坐标 */
   yEnd: number;
+  /** 块在页面宽度中的水平起始位置（百分比 0~100） */
+  xStartPct: number;
+  /** 块在页面宽度中的水平结束位置（百分比 0~100） */
+  xEndPct: number;
   /** 翻译后的文本（初始为空） */
   translated: string;
   /** 翻译状态 */
