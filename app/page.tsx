@@ -15,6 +15,7 @@ import SettingsModal from "@/components/SettingsModal";
 import { usePdfLoader } from "@/hooks/usePdfLoader";
 import { useSyncScroll } from "@/hooks/useSyncScroll";
 import { useTranslationQueue } from "@/hooks/useTranslationQueue";
+import { downloadMarkdown } from "@/services/exportMarkdown";
 import type { ApiConfig, PageContent } from "@/types";
 
 export default function Home() {
@@ -151,6 +152,12 @@ export default function Home() {
     startTranslation(currentPages, (apiConfig || { baseUrl: '', modelName: '' }), handlePagesUpdate);
   }, [apiConfig, pages, pagesState, startTranslation, handlePagesUpdate]);
 
+  // ---- 导出 Markdown ----
+  const handleExportMarkdown = useCallback(() => {
+    if (displayPages.length === 0) return;
+    downloadMarkdown(displayPages);
+  }, [displayPages]);
+
   // ---- 渲染：空状态 ----
   if (pages.length === 0 && !loading) {
     return (
@@ -265,6 +272,15 @@ export default function Home() {
             className="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
           >
             ⚙️ API
+          </button>
+
+          <button
+            onClick={handleExportMarkdown}
+            disabled={displayPages.length === 0}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="导出双语对照 Markdown"
+          >
+            📝 导出
           </button>
 
           <button
