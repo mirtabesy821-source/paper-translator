@@ -13,6 +13,8 @@ export interface ApiConfig {
   baseUrl: string;
   modelName: string;
   glossary?: GlossaryEntry[];
+  /** 是否使用本地部署的模型（如 Ollama），为 true 时跳过 API Key 检查 */
+  localModel?: boolean;
 }
 
 /** LLM 请求消息 */

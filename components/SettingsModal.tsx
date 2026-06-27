@@ -17,6 +17,7 @@ type Tab = "api" | "glossary";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-chat";
+const DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1";
 
 const PLATFORM_PRESETS: { name: string; url: string; model: string }[] = [
   { name: "DeepSeek", url: "https://api.deepseek.com", model: "deepseek-chat" },
@@ -61,6 +62,12 @@ export default function SettingsModal({
     currentConfig?.modelName ?? DEFAULT_MODEL
   );
   const [selectedPreset, setSelectedPreset] = useState(0);
+
+  // 本地模型状态
+  const [localModel, setLocalModel] = useState(currentConfig?.localModel ?? false);
+  const [localModels, setLocalModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchModelError, setFetchModelError] = useState("");
 
   // Glossary fields
   const [glossaryText, setGlossaryText] = useState(
@@ -140,12 +147,52 @@ export default function SettingsModal({
     if (preset.model) setModelName(preset.model);
   };
 
+  // ---- 本地模型：拉取可用模型列表 ----
+  const handleFetchModels = async () => {
+    setFetchingModels(true);
+    setFetchModelError("");
+    try {
+      const res = await fetch(
+        `/api/local-models?baseUrl=${encodeURIComponent(baseUrl)}`
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setLocalModels(data.models || []);
+        if (data.models?.length > 0 && !modelName) {
+          setModelName(data.models[0]);
+        }
+      } else {
+        setFetchModelError(data.error || "拉取模型列表失败");
+      }
+    } catch {
+      setFetchModelError("拉取模型列表失败，请确认服务已启动");
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  // ---- 本地模型 toggle 切换 ----
+  const handleToggleLocal = (enabled: boolean) => {
+    setLocalModel(enabled);
+    if (enabled) {
+      setBaseUrl(DEFAULT_LOCAL_BASE_URL);
+      setModelName("");
+      setSelectedPreset(-1);
+      setFetchModelError("");
+    } else {
+      setBaseUrl(DEFAULT_BASE_URL);
+      setModelName(DEFAULT_MODEL);
+      setSelectedPreset(0);
+    }
+  };
+
   const handleSave = () => {
     const glossary = parseGlossaryText(glossaryText);
     onSave({
-      baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
-      modelName: modelName.trim() || DEFAULT_MODEL,
+      baseUrl: baseUrl.trim() || (localModel ? DEFAULT_LOCAL_BASE_URL : DEFAULT_BASE_URL),
+      modelName: modelName.trim() || (localModel ? "" : DEFAULT_MODEL),
       ...(glossary.length > 0 ? { glossary } : {}),
+      ...(localModel ? { localModel: true } : {}),
     });
     onClose();
   };
@@ -175,54 +222,138 @@ export default function SettingsModal({
           {/* ============ API Tab ============ */}
           {activeTab === "api" && (
             <div>
-              <p className="text-xs text-amber-600 dark:text-amber-400 mb-4 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
-                ⚠️ API Key 请在 <code className="font-mono text-xs">.env.local</code> 中配置
-                <code className="font-mono text-xs"> DEEPSEEK_API_KEY</code>
-              </p>
-
-              {/* Platform presets */}
-              <label className="block mb-3">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">平台</span>
-                <div className="flex gap-1 mt-1 flex-wrap">
-                  {PLATFORM_PRESETS.map((p, i) => (
-                    <button
-                      key={p.name}
-                      onClick={() => handlePresetChange(i)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                        selectedPreset === i
-                          ? "bg-blue-600 text-white"
-                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
+              {/* 本地模型 Toggle */}
+              <div className="flex items-center justify-between mb-4 p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg">
+                <div>
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    🏠 本地模型
+                  </span>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                    使用本地部署的 LLM（如 Ollama），无需 API Key
+                  </p>
                 </div>
-              </label>
+                <button
+                  onClick={() => handleToggleLocal(!localModel)}
+                  className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                    localModel ? "bg-blue-600" : "bg-zinc-300 dark:bg-zinc-600"
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    localModel ? "translate-x-5" : ""
+                  }`} />
+                </button>
+              </div>
 
-              {/* Base URL */}
-              <label className="block mb-3">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Base URL</span>
-                <input
-                  type="text"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder={DEFAULT_BASE_URL}
-                  className="w-full mt-1 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </label>
+              {/* ---- 本地模型模式 ---- */}
+              {localModel ? (
+                <>
+                  <label className="block mb-3">
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">本地 Base URL</span>
+                    <input
+                      type="text"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder={DEFAULT_LOCAL_BASE_URL}
+                      className="w-full mt-1 px-3 py-2 text-sm font-mono border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </label>
 
-              {/* Model Name */}
-              <label className="block mb-0">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</span>
-                <input
-                  type="text"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder={DEFAULT_MODEL}
-                  className="w-full mt-1 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </label>
+                  <label className="block mb-2">
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</span>
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="text"
+                        value={modelName}
+                        onChange={(e) => setModelName(e.target.value)}
+                        placeholder="llama3 / qwen2 / ..."
+                        list="local-model-list"
+                        className="flex-1 px-3 py-2 text-sm font-mono border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={handleFetchModels}
+                        disabled={fetchingModels}
+                        className="px-3 py-2 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {fetchingModels ? "拉取中..." : "🔄 拉取列表"}
+                      </button>
+                    </div>
+                    <datalist id="local-model-list">
+                      {localModels.map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </label>
+
+                  {fetchModelError && (
+                    <p className="text-xs text-red-500 dark:text-red-400 mt-2 bg-red-50 dark:bg-red-950/30 rounded-md px-3 py-1.5">
+                      {fetchModelError}
+                    </p>
+                  )}
+
+                  {localModels.length > 0 && !fetchModelError && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                      ✓ 已拉取 {localModels.length} 个可用模型
+                    </p>
+                  )}
+
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-md px-3 py-2">
+                    💡 支持 Ollama / vLLM / LM Studio 等兼容 OpenAI API 的本地服务。
+                    确保服务已启动并监听对应端口。翻译请求通过服务端转发，无跨域问题。
+                  </p>
+                </>
+              ) : (
+                /* ---- 云端 API 模式 ---- */
+                <>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mb-4 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
+                    ⚠️ API Key 请在 <code className="font-mono text-xs">.env.local</code> 中配置
+                    <code className="font-mono text-xs"> DEEPSEEK_API_KEY</code>
+                  </p>
+
+                  {/* Platform presets */}
+                  <label className="block mb-3">
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">平台</span>
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      {PLATFORM_PRESETS.map((p, i) => (
+                        <button
+                          key={p.name}
+                          onClick={() => handlePresetChange(i)}
+                          className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                            selectedPreset === i
+                              ? "bg-blue-600 text-white"
+                              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </label>
+
+                  {/* Base URL */}
+                  <label className="block mb-3">
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Base URL</span>
+                    <input
+                      type="text"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder={DEFAULT_BASE_URL}
+                      className="w-full mt-1 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </label>
+
+                  {/* Model Name */}
+                  <label className="block mb-0">
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</span>
+                    <input
+                      type="text"
+                      value={modelName}
+                      onChange={(e) => setModelName(e.target.value)}
+                      placeholder={DEFAULT_MODEL}
+                      className="w-full mt-1 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </label>
+                </>
+              )}
             </div>
           )}
 
